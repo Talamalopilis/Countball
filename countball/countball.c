@@ -1,4 +1,8 @@
-#define __AVR_ATtiny13__
+#ifdef _MSC_VER			//IntelliSense override
+#define __AVR_ATtiny13__	
+#define pgm_read_byte
+#endif
+
 #define A0 PINB1
 #define lcdpower PINB3
 #define sck PINB2
@@ -9,38 +13,19 @@
 #include <util/delay.h>
 #include <avr/sleep.h>
 #include <avr/portpins.h>
-
-struct digit {
-	unsigned char* bitmap; //[3][10];
-	//digit display, 24x20 pixels, 8 pixels per column, width compressed to 10
-};
-
-struct numbers {
-	struct digit zero;
-	struct digit one;
-	struct digit two;
-	struct digit three;
-	struct digit four;
-	struct digit five;
-	struct digit six;
-	struct digit seven;
-	struct digit eight;
-	struct digit nine;
-};
+#include "NumbersLibrary.h"
 
 void init_LCD();
 void data_out(unsigned char);
 void comm_out(unsigned char);
 void paint_frame();
-void paint_count(unsigned int, struct numbers);
-void paint_digit(struct digit, unsigned char);
-struct numbers init_numbers();
+void paint_count(unsigned int, struct numbers*);
+void paint_digit(struct digit*, unsigned char);
+void init_numbers(struct numbers*);
 
 int main(void)
 {
-	struct numbers numbers = init_numbers();
 	unsigned int count = 0;
-	unsigned char page = 0x00;
 	DDRB |= _BV(lcdpower);
 	DDRB |= _BV(A0);
 	DDRB |= _BV(sck);
@@ -53,13 +38,18 @@ int main(void)
 	_delay_ms(1);
 	init_LCD();
 
+	struct numbers numbers;
+	init_numbers(&numbers);
+
 	while (1)
 	{
-		data_out(0xFF);
-		count++;
+		paint_digit(&(numbers.zero), 4);
+		paint_digit(&(numbers.zero), 24);
+		paint_digit(&(numbers.zero), 44);
+		/*count++;
 		if (count % 10 == 0)
 			comm_out(0xB0);
-		_delay_ms(1500);
+		_delay_ms(1500);*/
 		/*PORTB = _BV(PINB3);
 		_delay_ms(1500);
 		PORTB = 0;
@@ -117,26 +107,30 @@ void paint_frame()
 {
 }
 
-void paint_count(unsigned int count, struct numbers numbers)
+void paint_count(unsigned int count, struct numbers *numbers)
 {
 }
 
-void paint_digit(struct digit digit, unsigned char column)
+void paint_digit(struct digit *digit, unsigned char column)
 {
-
+	int i, j;
+	for (i = 0; i < 3; i++) {
+		comm_out(0xB0 + i+1); //start at row 1
+		comm_out(0x10 + (column >> 4)); //column (upper bits)
+		comm_out(0x00 + (column & 0x0f)); //column (lower bits)
+		for (j = 0; j < 10; j++) {
+			data_out(pgm_read_byte(digit->bitmap + (i * 10 + j)));
+			data_out(pgm_read_byte(digit->bitmap + (i * 10 + j)));
+			_delay_ms(1500);
+		}
+	}
 }
 
-struct numbers init_numbers()
+void init_numbers(struct numbers *n)
 {
-	struct numbers n;
+	//data_out(0xFF);
 
-	unsigned char zero[3][10] = {
-		{0x00, 0xf0, 0xfc, 0x3c, 0x3c, 0x3c, 0x3c, 0xfc, 0xf0, 0x00},
-		{0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x00},
-		{0x00, 0x0f, 0x3f, 0x3c, 0x3c, 0x3c, 0x3c, 0x3f, 0x0f, 0x00}
-	};
-	n.zero.bitmap = zero;
-	return n;
+	n->zero.bitmap = zeroM;
 }
 
 void init_LCD()
