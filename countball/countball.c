@@ -8,27 +8,40 @@
 #define mosi PINB0
 #define lcdreset PINB4
 #define F_CPU 1000000UL
+#define MAXDIGITS 6
+#define STARTCOLUMN 104
+#define DIGITSIZE 20
+#define COUNTEEADDRESS 0
+#define DELAYTIME 1500
 #include <avr/io.h>
 #include <util/delay.h>
 #include <avr/sleep.h>
 #include <avr/portpins.h>
+#include <avr/eeprom.h>
 #include "NumbersLibrary.h"
 
-static const unsigned char MAXDIGITS =	6;
-static unsigned char STARTCOLUMN =		104;
-static const char DIGITSIZE = 20;
-
-void init_LCD();
+static void init_LCD();
 void data_out(unsigned char);
 void comm_out(unsigned char);
-void paint_frame();
-void paint_count(unsigned int, struct numbers*);
-void paint_digit(const unsigned char*, unsigned char);
-void init_numbers(struct numbers*);
+static void paint_frame();
+static void paint_count(unsigned int, struct numbers*);
+static void paint_digit(const unsigned char*, unsigned char);
+static void init_numbers(struct numbers*);
 
 int main(void)
 {
-	unsigned int count = 0;
+	unsigned long count;
+	//TODO: implement eeprom wear leveling
+	if (eeprom_read_byte(COUNTEEADDRESS) == 0xff) { //if first time boot
+		count = 0;
+		eeprom_write_dword(COUNTEEADDRESS, count);
+	}
+	else {
+		count = eeprom_read_dword(COUNTEEADDRESS);
+		count++;
+		eeprom_write_dword(COUNTEEADDRESS, count);
+	}
+
 	DDRB |= _BV(lcdpower);
 	DDRB |= _BV(A0);
 	DDRB |= _BV(sck);
@@ -43,16 +56,14 @@ int main(void)
 
 	struct numbers numbers;
 	init_numbers(&numbers);
-	paint_count(10, &numbers);
-	//_delay_ms(15000);
-	//paint_count(1111, &numbers);
+	paint_count(count, &numbers);
 
-	while (1)
-	{
-		/*set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-		sleep_enable();
-		sleep_cpu();*/
-	}
+	_delay_ms(5000);
+	PORTB = 0;	//turn all outputs off
+	set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+	sleep_enable();
+	sleep_cpu();
+
 	return 0;
 }
 
@@ -100,18 +111,17 @@ void paint_frame()
 void paint_count(unsigned int count, struct numbers *numbers)
 {
 	unsigned char column = STARTCOLUMN; // start at last least significant digit
-	int digitnum;
+	unsigned long digitnum;
 	const unsigned char *digitdraw;
 	char i;
-	int a = 10;
-	int b = 1;
+	unsigned long a = 10;
 
-	for (i = 0; i < MAXDIGITS && count > 0; i++, b=a, a*=10, column-=DIGITSIZE) {
+	for (i = 0; i < MAXDIGITS && count > 0; i++, a*=10, column-=DIGITSIZE) {
 		// paint until max digits or until out of inputed digits.
 		// increment digit count, order up dividor and modulus, shift column back one digit
 		digitnum = count % a;
 		count -= digitnum;
-		digitnum = digitnum / b;
+		digitnum = digitnum / (a/10);
 
 		switch (digitnum)
 		{
@@ -171,6 +181,7 @@ void init_numbers(struct numbers *n)
 {
 	n->zero = zeroM;
 	n->one = oneM;
+	n->two = twoM;
 }
 
 void init_LCD()
