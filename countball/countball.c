@@ -108,7 +108,7 @@ void paint_frame()
 {
 }
 
-void paint_count(unsigned int count, struct numbers *numbers)
+void paint_count(unsigned long count, struct numbers *numbers)
 {
 	unsigned char column = STARTCOLUMN; // start at last least significant digit
 	unsigned long digitnum;
@@ -182,6 +182,13 @@ void init_numbers(struct numbers *n)
 	n->zero = zeroM;
 	n->one = oneM;
 	n->two = twoM;
+	n->three = threeM;
+	n->four = fourM;
+	n->five = fiveM;
+	n->six = sixM;
+	n->seven = sevenM;
+	n->eight = eightM;
+	n->nine = nineM;
 }
 
 void init_LCD()
