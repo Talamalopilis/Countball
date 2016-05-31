@@ -12,7 +12,9 @@
 #define STARTCOLUMN 104
 #define DIGITSIZE 20
 #define COUNTEEADDRESS 0
-#define DELAYTIME 1500
+#define DELAYQSECONDS 20
+#define LCDCOMMAND 1
+#define LCDDATA 0
 #include <avr/io.h>
 #include <util/delay.h>
 #include <avr/sleep.h>
@@ -21,8 +23,7 @@
 #include "NumbersLibrary.h"
 
 static void init_LCD();
-void data_out(unsigned char);
-void comm_out(unsigned char);
+void data_out(unsigned char, unsigned char);
 static void paint_frame();
 static void paint_count(unsigned int, struct numbers*);
 static void paint_digit(const unsigned char*, unsigned char);
@@ -30,16 +31,16 @@ static void init_numbers(struct numbers*);
 
 int main(void)
 {
-	unsigned long count;
+	unsigned int count;
 	//TODO: implement eeprom wear leveling
 	if (eeprom_read_byte(COUNTEEADDRESS) == 0xff) { //if first time boot
 		count = 0;
-		eeprom_write_dword(COUNTEEADDRESS, count);
+		eeprom_write_word(COUNTEEADDRESS, count);
 	}
 	else {
-		count = eeprom_read_dword(COUNTEEADDRESS);
+		count = eeprom_read_word(COUNTEEADDRESS);
 		count++;
-		eeprom_write_dword(COUNTEEADDRESS, count);
+		eeprom_write_word(COUNTEEADDRESS, count);
 	}
 
 	DDRB |= _BV(lcdpower);
@@ -57,8 +58,12 @@ int main(void)
 	struct numbers numbers;
 	init_numbers(&numbers);
 	paint_count(count, &numbers);
+	
+	unsigned char s;
+	for (s = DELAYQSECONDS*10; s; s--){
+		_delay_ms(250);
+	}
 
-	_delay_ms(5000);
 	PORTB = 0;	//turn all outputs off
 	set_sleep_mode(SLEEP_MODE_PWR_DOWN);
 	sleep_enable();
@@ -67,37 +72,24 @@ int main(void)
 	return 0;
 }
 
-void data_out(unsigned char i) //Data Output Serial Interface
+void data_out(unsigned char datain, unsigned char comm) //Data Output Serial Interface
 {
 	unsigned char n;
 	unsigned char t;
-	PORTB |= _BV(A0); // A0 = 1
+
+	if (comm)
+		PORTB &= ~_BV(A0); // A0 = 0
+	else
+		PORTB |= _BV(A0); // A0 = 1
+
 	for (n = 0; n<8; n++) {
 		PORTB &= ~_BV(sck);// SCL = 0;
-		t = i >> 7;
+		t = datain >> 7;
 		if (t == 1)
 			PORTB |= _BV(mosi);
 		else
 			PORTB &= ~_BV(mosi);
-		i <<= 1;
-		_delay_ms(1);
-		PORTB |= _BV(sck); //SCL = 1;
-		_delay_ms(1);
-	}
-}
-void comm_out(unsigned char i) //Command Output Serial Interface
-{
-	unsigned char n;
-	unsigned char t;
-	PORTB &= ~_BV(A0); // A0 = 0
-	for (n = 0; n<8; n++) {
-		PORTB &= ~_BV(sck);// SCL = 0;
-		t = i >> 7;
-		if (t == 1)
-			PORTB |= _BV(mosi);
-		else
-			PORTB &= ~_BV(mosi);
-		i <<= 1;
+		datain <<= 1;
 		_delay_ms(1);
 		PORTB |= _BV(sck); //SCL = 1;
 		_delay_ms(1);
@@ -106,22 +98,22 @@ void comm_out(unsigned char i) //Command Output Serial Interface
 
 void paint_frame()
 {
+	//frame graphics for the lcd.
+	//cant do, ran out of code space. :(
 }
 
-void paint_count(unsigned long count, struct numbers *numbers)
+void paint_count(unsigned int count, struct numbers *numbers)
 {
-	unsigned char column = STARTCOLUMN; // start at last least significant digit
-	unsigned long digitnum;
+	unsigned char column = STARTCOLUMN; // start at least significant digit
+	unsigned int digitnum;
 	const unsigned char *digitdraw;
 	char i;
-	unsigned long a = 10;
 
-	for (i = 0; i < MAXDIGITS && count > 0; i++, a*=10, column-=DIGITSIZE) {
+	for (i = 0; i < MAXDIGITS && count; i++, column-=DIGITSIZE) {
 		// paint until max digits or until out of inputed digits.
-		// increment digit count, order up dividor and modulus, shift column back one digit
-		digitnum = count % a;
-		count -= digitnum;
-		digitnum = digitnum / (a/10);
+		// increment digit count, shift column back one digit
+		digitnum = count % 10;
+		count /= 10;
 
 		switch (digitnum)
 		{
@@ -167,12 +159,12 @@ void paint_digit(const unsigned char *digit, unsigned char column)
 {
 	char i, j;
 	for (i = 0; i < 3; i++) {
-		comm_out(0xB0 + i+1); //start at row 1
-		comm_out(0x10 + (column >> 4)); //column (upper bits)
-		comm_out(0x00 + (column & 0x0f)); //column (lower bits)
+		data_out(0xB0 + i+1, LCDCOMMAND); //start at row 1
+		data_out(0x10 + (column >> 4), LCDCOMMAND); //column (upper bits)
+		data_out(0x00 + (column & 0x0f), LCDCOMMAND); //column (lower bits)
 		for (j = 0; j < 10; j++) {
-			data_out(pgm_read_byte(digit + (i * 10 + j)));
-			data_out(pgm_read_byte(digit + (i * 10 + j)));
+			data_out(pgm_read_byte(digit + (i * 10 + j)), LCDDATA);
+			data_out(pgm_read_byte(digit + (i * 10 + j)), LCDDATA);
 		}
 	}
 }
@@ -193,18 +185,18 @@ void init_numbers(struct numbers *n)
 
 void init_LCD()
 {
-	comm_out(0xA0); //internal power and resistor settings (default)
-	comm_out(0xAE);
-	comm_out(0xC0);
-	comm_out(0xA2);
-	comm_out(0x2F);
-	comm_out(0x21);
-	comm_out(0x81);
-	comm_out(0x3F);
+	data_out(0xA0, LCDCOMMAND); //internal power and resistor settings (default)
+	data_out(0xAE, LCDCOMMAND);
+	data_out(0xC0, LCDCOMMAND);
+	data_out(0xA2, LCDCOMMAND);
+	data_out(0x2F, LCDCOMMAND);
+	data_out(0x21, LCDCOMMAND);
+	data_out(0x81, LCDCOMMAND);
+	data_out(0x3F, LCDCOMMAND);
 
-	comm_out(0x40); //start line 0
-	comm_out(0xB0); //page 0
-	comm_out(0x10); //column 0 (upper bits)
-	comm_out(0x00); //column 0 (lower bits)
-	comm_out(0xAF); //display on
+	data_out(0x40, LCDCOMMAND); //start line 0
+	data_out(0xB0, LCDCOMMAND); //page 0
+	data_out(0x10, LCDCOMMAND); //column 0 (upper bits)
+	data_out(0x00, LCDCOMMAND); //column 0 (lower bits)
+	data_out(0xAF, LCDCOMMAND); //display on
 }
